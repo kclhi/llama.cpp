@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+
+  server:
+    build:
+      context: .
+      dockerfile: .devops/full.Dockerfile
+    command: --server --host 0.0.0.0 --model /models/13B/ggml-model-q4_0.bin -c 2048
+    ports:
+      - '8080:8080'
+    volumes: 
+      - /home/ubuntu/llama.cpp/facebook/llama/llama-2-13b:/models/13B
+    restart: unless-stopped

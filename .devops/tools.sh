@@ -27,7 +27,7 @@ elif [[ "$arg1" == '--all-in-one' || "$arg1" == '-a' ]]; then
         fi
     done
 elif [[ "$arg1" == '--server' || "$arg1" == '-s' ]]; then
-    ./server "$arg2"
+    ./server $arg2
 else
     echo "Unknown command: $arg1"
     echo "Available commands: "
