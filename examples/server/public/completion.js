@@ -21,6 +21,7 @@ let generation_settings = null;
 //
 export async function* llama(prompt, params = {}, config = {}) {
   let controller = config.controller;
+  const api_url = config.api_url || "";
 
   if (!controller) {
     controller = new AbortController();
@@ -28,13 +29,14 @@ export async function* llama(prompt, params = {}, config = {}) {
 
   const completionParams = { ...paramDefaults, ...params, prompt };
 
-  const response = await fetch("/completion", {
+  const response = await fetch(`${api_url}/completion`, {
     method: 'POST',
     body: JSON.stringify(completionParams),
     headers: {
       'Connection': 'keep-alive',
       'Content-Type': 'application/json',
-      'Accept': 'text/event-stream'
+      'Accept': 'text/event-stream',
+      ...(params.api_key ? {'Authorization': `Bearer ${params.api_key}`} : {})
     },
     signal: controller.signal,
   });
@@ -43,6 +45,7 @@ export async function* llama(prompt, params = {}, config = {}) {
   const decoder = new TextDecoder();
 
   let content = "";
+  let leftover = ""; // Buffer for partially read lines
 
   try {
     let cont = true;
@@ -53,29 +56,60 @@ export async function* llama(prompt, params = {}, config = {}) {
         break;
       }
 
-      // sse answers in the form multiple lines of: value\n with data always present as a key. in our case we
-      // mainly care about the data: key here, which we expect as json
-      const text = decoder.decode(result.value);
+      // Add any leftover data to the current chunk of data
+      const text = leftover + decoder.decode(result.value);
 
-      // parse all sse events and add them to result
-      const regex = /^(\S+):\s(.*)$/gm;
-      for (const match of text.matchAll(regex)) {
-        result[match[1]] = match[2]
+      // Check if the last character is a line break
+      const endsWithLineBreak = text.endsWith('\n');
+
+      // Split the text into lines
+      let lines = text.split('\n');
+
+      // If the text doesn't end with a line break, then the last line is incomplete
+      // Store it in leftover to be added to the next chunk of data
+      if (!endsWithLineBreak) {
+        leftover = lines.pop();
+      } else {
+        leftover = ""; // Reset leftover if we have a line break at the end
       }
 
-      // since we know this is llama.cpp, let's just decode the json in data
-      result.data = JSON.parse(result.data);
-      content += result.data.content;
+      // Parse all sse events and add them to result
+      const regex = /^(\S+):\s(.*)$/gm;
+      for (const line of lines) {
+        const match = regex.exec(line);
+        if (match) {
+          result[match[1]] = match[2]
+          // since we know this is llama.cpp, let's just decode the json in data
+          if (result.data) {
+            result.data = JSON.parse(result.data);
+            content += result.data.content;
 
-      // yield
-      yield result;
+            // yield
+            yield result;
 
-      // if we got a stop token from server, we will break here
-      if (result.data.stop) {
-        if (result.data.generation_settings) {
-          generation_settings = result.data.generation_settings;
+            // if we got a stop token from server, we will break here
+            if (result.data.stop) {
+              if (result.data.generation_settings) {
+                generation_settings = result.data.generation_settings;
+              }
+              cont = false;
+              break;
+            }
+          }
+          if (result.error) {
+            try {
+              result.error = JSON.parse(result.error);
+              if (result.error.message.includes('slot unavailable')) {
+                // Throw an error to be caught by upstream callers
+                throw new Error('slot unavailable');
+              } else {
+                console.error(`llama.cpp error [${result.error.code} - ${result.error.type}]: ${result.error.message}`);
+              }
+            } catch(e) {
+              console.error(`llama.cpp error ${result.error}`)
+            }
+          }
         }
-        break;
       }
     }
   } catch (e) {
@@ -91,7 +125,7 @@ export async function* llama(prompt, params = {}, config = {}) {
   return content;
 }
 
-// Call llama, return an event target that you can subcribe to
+// Call llama, return an event target that you can subscribe to
 //
 // Example:
 //
@@ -160,9 +194,11 @@ export const llamaComplete = async (params, controller, callback) => {
 }
 
 // Get the model info from the server. This is useful for getting the context window and so on.
-export const llamaModelInfo = async () => {
+export const llamaModelInfo = async (config = {}) => {
   if (!generation_settings) {
-    generation_settings = await fetch("/model.json").then(r => r.json());
+    const api_url = config.api_url || "";
+    const props = await fetch(`${api_url}/props`).then(r => r.json());
+    generation_settings = props.default_generation_settings;
   }
   return generation_settings;
 }

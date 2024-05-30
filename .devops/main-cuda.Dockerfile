@@ -12,7 +12,7 @@ FROM ${BASE_CUDA_DEV_CONTAINER} as build
 ARG CUDA_DOCKER_ARCH=all
 
 RUN apt-get update && \
-    apt-get install -y build-essential
+    apt-get install -y build-essential git
 
 WORKDIR /app
 
@@ -20,8 +20,8 @@ COPY . .
 
 # Set nvcc architecture
 ENV CUDA_DOCKER_ARCH=${CUDA_DOCKER_ARCH}
-# Enable cuBLAS
-ENV LLAMA_CUBLAS=1
+# Enable CUDA
+ENV LLAMA_CUDA=1
 
 RUN make
 
