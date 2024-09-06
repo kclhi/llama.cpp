@@ -112,9 +112,12 @@ struct llava_context {
     struct llama_model * model = NULL;
 };
 
-static void show_additional_info(int /*argc*/, char ** argv) {
-    LOG_TEE("\n example usage: %s -m <llava-v1.5-7b/ggml-model-q5_k.gguf> --mmproj <llava-v1.5-7b/mmproj-model-f16.gguf> --image <path/to/an/image.jpg> --image <path/to/another/image.jpg> [--temp 0.1] [-p \"describe the image in detail.\"]\n", argv[0]);
-    LOG_TEE("  note: a lower temperature value like 0.1 is recommended for better quality.\n");
+static void print_usage(int argc, char ** argv, const gpt_params & params) {
+    gpt_params_print_usage(argc, argv, params);
+
+    LOG_TEE("\n example usage:\n");
+    LOG_TEE("\n     %s -m <llava-v1.5-7b/ggml-model-q5_k.gguf> --mmproj <llava-v1.5-7b/mmproj-model-f16.gguf> --image <path/to/an/image.jpg> --image <path/to/another/image.jpg> [--temp 0.1] [-p \"describe the image in detail.\"]\n", argv[0]);
+    LOG_TEE("\n note: a lower temperature value like 0.1 is recommended for better quality.\n");
 }
 
 static struct llava_image_embed * load_image(llava_context * ctx_llava, gpt_params * params, const std::string & fname) {
@@ -126,14 +129,14 @@ static struct llava_image_embed * load_image(llava_context * ctx_llava, gpt_para
         if (!params->image.empty()) {
             LOG_TEE("using base64 encoded image instead of command line image path\n");
         }
-        embed = llava_image_embed_make_with_prompt_base64(ctx_llava->ctx_clip, params->n_threads, prompt);
+        embed = llava_image_embed_make_with_prompt_base64(ctx_llava->ctx_clip, params->cpuparams.n_threads, prompt);
         if (!embed) {
             LOG_TEE("%s: can't load image from prompt\n", __func__);
             return NULL;
         }
         params->prompt = remove_image_from_prompt(prompt);
     } else {
-        embed = llava_image_embed_make_with_filename(ctx_llava->ctx_clip, params->n_threads, fname.c_str());
+        embed = llava_image_embed_make_with_filename(ctx_llava->ctx_clip, params->cpuparams.n_threads, fname.c_str());
         if (!embed) {
             fprintf(stderr, "%s: is %s really an image file?\n", __func__, fname.c_str());
             return NULL;
@@ -278,7 +281,7 @@ int main(int argc, char ** argv) {
     gpt_params params;
 
     if (!gpt_params_parse(argc, argv, params)) {
-        show_additional_info(argc, argv);
+        print_usage(argc, argv, params);
         return 1;
     }
 
@@ -290,8 +293,7 @@ int main(int argc, char ** argv) {
 #endif // LOG_DISABLE_LOGS
 
     if (params.mmproj.empty() || (params.image.empty() && !prompt_contains_image(params.prompt))) {
-        gpt_params_print_usage(argc, argv, params);
-        show_additional_info(argc, argv);
+        print_usage(argc, argv, {});
         return 1;
     }
     auto model = llava_init(&params);
